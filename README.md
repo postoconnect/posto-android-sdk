@@ -2,8 +2,8 @@
 
 Posto ad delivery for Android apps distributed through Google Play. The SDK
 binds every ad request to a Play Integrity Standard verdict and a
-non-exportable Android Keystore key, filters PII on-device, and keeps
-tracking tokens private.
+non-exportable Android Keystore key (impressions and clicks are signed with
+that key alone), filters PII on-device, and keeps tracking tokens private.
 
 This repository holds the installation and usage documentation, the
 changelog and the license. The library ships as a compiled AAR from Posto's
@@ -51,15 +51,21 @@ No account, token or GitHub access is needed.
    and ships its consumer ProGuard rules, so no extra R8 configuration is
    needed.
 
-3. Register the app in the Posto Developer console: Play package name, every
-   accepted Play signing-certificate SHA-256 digest, and the minimum version
-   code. Copy the app's **Platform ID** and the placement IDs into your code.
+3. Register the app in the Posto Developer console, then open its **App
+   profile** and complete **Production connection**: Play package name, every
+   accepted Play signing-certificate SHA-256 digest, the minimum version code,
+   and the app's Google Cloud project (service-account JSON key). That page
+   also shows the app's **Platform ID**, placement IDs and **Developer test
+   key**. Billable delivery starts once the app passes publisher review; until
+   then production requests return `403 publisher_delivery_suspended`.
 
-> **Before you ship:** verify one request → impression → click on a physical
-> device installed from Google Play against
-> `https://simulation.postoconnect.com`. Play Integrity does not produce an
-> acceptable verdict on emulators or sideloaded builds, and the SDK fails
-> closed there by design.
+> **Before you ship:** Play Integrity does not produce an acceptable verdict on
+> emulators or sideloaded builds, and the SDK fails closed there by design.
+> Upload the build through **Play Internal App Sharing**, install it from that
+> link on a physical device, and verify one request → impression → click
+> against `https://simulation.postoconnect.com`. Simulation is a separate stack
+> with its own accounts: sign up there, register the same package name and
+> certificate digest, and use that console's Platform ID and placement IDs.
 
 ## Usage
 
@@ -73,7 +79,7 @@ use the same key without making another Google request.
 val posto = PostoIntegrityClient(
     context = applicationContext,
     platformId = "your_platform_id",
-    cloudProjectNumber = YOUR_CLOUD_PROJECT_NUMBER,
+    cloudProjectNumber = 123456789L,   // Long, from the Google Cloud console
 )
 
 posto.prepare() // Optional warm-up.
@@ -110,7 +116,7 @@ val ad = posto.requestAd(PostoAdRequest(
 ))
 
 if (ad != null) {
-    sponsoredLabel.text = PostoAd.SPONSORED_LABEL
+    sponsoredLabel.text = PostoAd.SPONSORED_LABEL   // fixed English "Sponsored"; localize it yourself
     headlineLabel.text = ad.headline
     bodyLabel.text = ad.body
     ad.trackImpression()
@@ -137,8 +143,9 @@ paste its JSON key into the app's production connection. Posto verifies the
 key on save; until it is connected, attestation and attested ad requests fail
 fast with `409 play_integrity_not_connected` (the SDK does not retry). The SDK
 does not read or send Android ID, IMEI, advertising ID, serial number, or any
-other hardware identifier. Posto sees only the hash of the registered public
-key as an opaque per-installation security subject.
+other hardware identifier. Registration sends only the installation's public
+key and the app and SDK versions; Posto uses the key as an opaque
+per-installation security subject.
 
 The production client does not contain a Posto secret. Devices without an
 acceptable Play Integrity verdict and apps outside Google Play must use a

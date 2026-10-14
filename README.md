@@ -55,17 +55,16 @@ No account, token or GitHub access is needed.
    profile** and complete **Production connection**: Play package name, every
    accepted Play signing-certificate SHA-256 digest, the minimum version code,
    and the app's Google Cloud project (service-account JSON key). That page
-   also shows the app's **Platform ID**, placement IDs and **Developer test
+   also shows the app's **Platform ID**, placement IDs and **Publisher test
    key**. Billable delivery starts once the app passes publisher review; until
    then production requests return `403 publisher_delivery_suspended`.
 
-> **Before you ship:** Play Integrity does not produce an acceptable verdict on
-> emulators or sideloaded builds, and the SDK fails closed there by design.
-> Upload the build through **Play Internal App Sharing**, install it from that
-> link on a physical device, and verify one request → impression → click
-> against `https://simulation.postoconnect.com`. Simulation is a separate stack
-> with its own accounts: sign up there, register the same package name and
-> certificate digest, and use that console's Platform ID and placement IDs.
+> **Before you ship:** Play Integrity does not produce an acceptable verdict
+> on emulators or sideloaded builds. Upload through **Play Internal App
+> Sharing**, install on a physical device, and verify against
+> `https://postoconnect.com` using the app's registered package, certificate
+> digests, Platform ID and placement. Use the Publisher test key for the
+> isolated non-billable emulator test below.
 
 ## Usage
 
@@ -119,10 +118,16 @@ if (ad != null) {
     sponsoredLabel.text = PostoAd.SPONSORED_LABEL   // fixed English "Sponsored"; localize it yourself
     headlineLabel.text = ad.headline
     bodyLabel.text = ad.body
-    ad.trackImpression()
-    val destination = ad.clickURL()
+    val onAdVisible: suspend () -> Unit = { ad.trackImpression() }
+    val onAdTap = suspend { ad.clickURL() }
 }
 ```
+
+The closures above are **your App callbacks**, not SDK lifecycle methods.
+From your view's visibility observer, launch `onAdVisible()` in your App's
+coroutine scope after the ad is visible. From the real button/tap handler,
+launch `onAdTap()` and open the returned URL. Creating the closures sends no
+events; do not invoke both immediately after `requestAd()`.
 
 `requestAd()` selects the latest three complete conversation rounds, applies
 the deterministic PII filter, and returns `PostoAd?`; `null` is a normal
@@ -154,14 +159,14 @@ isolated test lane below, but never fall back to unsigned billable delivery.
 
 ## Emulator integration test
 
-Use `PostoTestClient` with the App's **Developer test key** when validating the
+Use `PostoTestClient` with the App's **Publisher test key** when validating the
 SDK in an Android Emulator:
 
 ```kotlin
 val posto = PostoTestClient(
     platformId = "app_your_platform",
     testKey = "your_developer_test_key",
-    baseURL = "https://simulation.postoconnect.com",
+    baseURL = "https://postoconnect.com",
 )
 
 val ad = posto.requestAd(PostoAdRequest(
@@ -169,12 +174,16 @@ val ad = posto.requestAd(PostoAdRequest(
     format = PostoAdFormat.NATIVE_CARD,
     context = context,
 ))
-ad?.trackImpression()
-val destination = ad?.clickURL()
+if (ad != null) {
+    sponsoredLabel.text = PostoAd.SPONSORED_LABEL
+    headlineLabel.text = ad.headline
+    val onAdVisible: suspend () -> Unit = { ad.trackImpression() }
+    val onAdTap = suspend { ad.clickURL() }
+}
 ```
 
-The client calls `POST /v1/ads/request_non_attest` and receives Posto's fixed
-test creative. The request, response, PII filtering, impression, and click
+The client calls `POST /v1/ads/request_non_attest` and returns a labelled demo ad when the conversation has supported shopping
+intent; no-fill is normal. The request, response, PII filtering, impression, and click
 contracts are the same as production, but it does not enter an auction, spend
 an advertiser budget, create Developer earnings, or train the Campaign Agent.
 Production apps must keep using `PostoIntegrityClient`; the test client is not
